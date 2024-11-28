@@ -50,6 +50,10 @@ private:
     bool  is_owner_;
 };
 
+class PipeWriter : public FileWriter {
+
+};
+
 class StreamWriter : public IWritable {
 public:
     ~StreamWriter();

@@ -19,6 +19,7 @@ public:
     // TODO: Implement other functions
     virtual int     seek(int offset, int origin) = 0;
     virtual int     tell() = 0;
+    virtual void connect(PipeReader pipe_reader) = 0;
 };
 
 class FileReader : public IReadable {
@@ -38,6 +39,7 @@ public:
     ssize_t read(void* buf, size_t count);
     int     seek(int offset, int origin);
     int     tell();
+    void connect(PipeReader pipe_reader);
 
 private:
     void open();
@@ -49,6 +51,15 @@ private:
 
 class PipeReader : public FileReader {
 public:
+    ~PipeReader();
+
+    void open();
+    void close();
+    void connect(PipeReader pipe_reader);
+    void connect_file(FileReader file_reader);
+    void connect_pipe(PipeReader pipe_reader);
+    void connect_stream(StreamReader stream_reader);
+    void connect_string(StringReader string_reader);
 
 private:
 

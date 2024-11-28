@@ -9,10 +9,14 @@
 
 #include "readable.h"
 #include "writable.h"
+#include "utils.h"
 
 namespace subprocess {
 
+namespace type {
+
 enum IOOption {
+    NA,
     PIPE,
     STDOUT,
     DEVNULL
@@ -21,53 +25,40 @@ enum IOOption {
 struct args_t {
     template <typename... Args>
     explicit args_t(Args... args) {
-        std::ostringstream oss;
-        ((oss << args << " "), ...);
-        std::string buf = oss.str();
-        if (!buf.empty()) {
-            buf.pop_back();
-        }
-        data = buf;
-    }
-    std::string data;
+        utils::Concatenator concatenator; 
+        value = concatenator.concat(args...);
+    } 
+    std::string value;
 };
 
 struct bufsize_t {
-    explicit bufsize_t(size_t bufsize) : data(bufsize) {}
-    size_t data = -1;
+    explicit bufsize_t(size_t bufsize) : value(bufsize) {}
+    size_t value = -1;
 };
 
 struct executable_t {
-    explicit executable_t(const std::string& executable) : data(executable) {}
-    std::string data = "/bin/sh";
+    explicit executable_t(const std::string& executable) : value(executable) {}
+    std::string value = "/bin/sh";
 };
 
 struct preexec_fn_t {
-    explicit preexec_fn_t(const std::function<void()> preexec_fn) : data(preexec_fn) {}
-    std::function<void()> data = [] {};
+    explicit preexec_fn_t(const std::function<void()> preexec_fn) : value(preexec_fn) {}
+    std::function<void()> value = [] {};
 };
 
 struct stdin_t {
-    explicit stdin_t(int fd) : data(std::make_unique<FileReader>(fd)) {}
-    explicit stdin_t(FILE* fp) : data(std::make_unique<FileReader>(fp)) {}
-    explicit stdin_t(std::istream& stream) : data(std::make_unique<StreamReader>(stream)) {}
+    explicit stdin_t(int fd) : value(std::make_unique<FileReader>(fd)) {}
+    explicit stdin_t(FILE* fp) : value(std::make_unique<FileReader>(fp)) {}
+    explicit stdin_t(std::istream& stream) : value(std::make_unique<StreamReader>(stream)) {}
+    explicit stdin_t(IOOption opt) : option(opt) {}
     explicit stdin_t(const std::filesystem::path& path) {
         if (std::filesystem::is_empty(path)) {
             throw std::runtime_error(""); // TODO
         }
         // TODO
     }
-    explicit stdin_t(IOOption option) {
-        // TODO switch-case
-        if (option == PIPE) {
-            // TODO
-        } else if (option == DEVNULL) {
-            stdin_t("/dev/null");
-        } else {
-            throw std::runtime_error(""); // TODO
-        }
-    }
-    std::unique_ptr<IReadable> data;
+    std::unique_ptr<IReadable> value;
+    IOOption option = NA;
 };
 
 struct input_t {
@@ -75,39 +66,33 @@ struct input_t {
 };
 
 struct stdout_t {
-    explicit stdout_t(int fd) : data(std::make_unique<FileWriter>(fd)) {}
-    explicit stdout_t(FILE* fp) : data(std::make_unique<FileWriter>(fp)) {}
-    explicit stdout_t(std::ostream& stream) : data(std::make_unique<StreamWriter>(stream)) {}
-    explicit stdout_t(const std::filesystem::path& path); // TODO
-    explicit stdout_t(IOOption option) {
-        if (option == PIPE) {
-
-        } else if (option == DEVNULL) {
-
-        } else {
-
+    explicit stdout_t(int fd) : value(std::make_unique<FileWriter>(fd)) {}
+    explicit stdout_t(FILE* fp) : value(std::make_unique<FileWriter>(fp)) {}
+    explicit stdout_t(std::ostream& stream) : value(std::make_unique<StreamWriter>(stream)) {}
+    explicit stdout_t(IOOption opt) : option(opt) {}
+    explicit stdout_t(const std::filesystem::path& path) {
+        if (std::filesystem::is_empty(path)) {
+            throw std::runtime_error(""); // TODO
         }
+        // TODO
     }
-    std::unique_ptr<IWritable> data;
+    std::unique_ptr<IWritable> value;
+    IOOption option = NA;
 };
 
 struct stderr_t {
-    explicit stderr_t(int fd) : data(std::make_unique<FileWriter>(fd)) {}
-    explicit stderr_t(FILE* fp) : data(std::make_unique<FileWriter>(fp)) {}
-    explicit stderr_t(std::ostream& stream) : data(std::make_unique<StreamWriter>(stream)) {}
-    explicit stderr_t(const std::filesystem::path& path); // TODO
-    explicit stderr_t(IOOption option) {
-        if (option == PIPE) {
-
-        } else if (option == DEVNULL) {
-
-        } else if (option == STDOUT) {
-
-        } else {
-
+    explicit stderr_t(int fd) : value(std::make_unique<FileWriter>(fd)) {}
+    explicit stderr_t(FILE* fp) : value(std::make_unique<FileWriter>(fp)) {}
+    explicit stderr_t(std::ostream& stream) : value(std::make_unique<StreamWriter>(stream)) {}
+    explicit stderr_t(IOOption opt) : option(opt) {}
+    explicit stderr_t(const std::filesystem::path& path) {
+        if (std::filesystem::is_empty(path)) {
+            throw std::runtime_error(""); // TODO
         }
+        // TODO
     }
-    std::unique_ptr<IWritable> data;
+    std::unique_ptr<IWritable> value;
+    IOOption option = NA;
 };
 
 struct capture_output_t {
@@ -115,13 +100,13 @@ struct capture_output_t {
 };
 
 struct shell_t {
-    explicit shell_t(bool shell) : data(shell) {}
-    bool data = false;
+    explicit shell_t(bool shell) : value(shell) {}
+    bool value = false;
 };
 
 struct cwd_t {
-    explicit cwd_t(const std::filesystem::path& cwd) : data(cwd) {}
-    std::filesystem::path data;
+    explicit cwd_t(const std::filesystem::path& cwd) : value(cwd) {}
+    std::filesystem::path value;
 };
 
 struct timeout_t {
@@ -183,6 +168,8 @@ struct extra_groups {
 struct memory_limit {
 
 };
+
+}
 
 }
 

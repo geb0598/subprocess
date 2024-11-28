@@ -14,39 +14,35 @@ namespace subprocess {
 class PopenBuilder {
 public:
     Popen* build();
-
+    void set_args(type::args_t&& param);
+    void set_bufsize(type::bufsize_t&& param);
+    void set_executable(type::executable_t&& param);
+    void set_preexec_fn(type::preexec_fn_t&& param);
+    void set_stdin(type::stdin_t&& param);
+    void set_stdout(type::stdout_t&& param);
+    void set_stderr(type::stderr_t&& param);
 
 private:
-    args_t args_;
-    bufsize_t bufsize_;
-    executable_t executable_;
-    stdin_t stdin_;
-    stdout_t stdout_;
-    stderr_t stderr_;
-    input_t input_;
-    capture_output_t capture_output_;
-    shell_t shell_;
-    cwd_t cwd_;
-    timeout_t timeout_;
-
+    type::args_t        args_;
+    type::bufsize_t     bufsize_;
+    type::executable_t  executable_;
+    type::preexec_fn_t  preexec_fn_;
+    type::stdin_t       stdin_;
+    type::stdout_t      stdout_;
+    type::stderr_t      stderr_;
 };
 
 class Popen {
 public:
     ~Popen();
 
+    Popen();
     template <typename... Args>
-    Popen(const std::string& args, Args... opt_args);
-
-    template <typename... Args>
-    Popen(const std::vector<std::string>& args, Args... opt_args);
-
-    template <typename... Args>
-    Popen(const std::initializer_list<std::string>& args, Args... opt_args);
+    Popen(Args&& ...args);
 
     int poll();
     int wait(int timeout = 0);
-    std::pair<Bytes, Bytes> communicate(stdin input, int timeout = 0);
+    std::pair<Bytes, Bytes> communicate(const std::string& message, int timeout = 0);
     void send_signal(int sig);
     void terminate();
     void kill();
@@ -63,18 +59,18 @@ public:
     int returncode() const;
 
 private:
-    template <typename T, typename... Args>
-    void parse_args(PopenBuilder& builder, T arg, Args... opt_args);
+    template<typename T, typename... Args>
+    void set_args(PopenBuilder& builder, T&& arg, Args&& ...args);
+    void set_args(PopenBuilder& builder);
 
-    void parse_args(PopenBuilder& builder);
 
     std::unique_ptr<IReadable> input_;
     std::unique_ptr<IWritable> output_;
     std::unique_ptr<IWritable> error_;
 
-    std::unique_ptr<IReadable> pipe_in_;
-    std::unique_ptr<IWritable> pipe_out_;
-    std::unique_ptr<IWritable> pipe_err_;
+    std::unique_ptr<PipeReader> pipe_in_;
+    std::unique_ptr<PipeWriter> pipe_out_;
+    std::unique_ptr<PipeWriter> pipe_err_;
 };
 
 }
