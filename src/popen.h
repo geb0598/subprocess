@@ -1,77 +1,131 @@
 #ifndef POPEN_H
 #define POPEN_H
 
-#include <utility>
-#include <memory>
+#include <chrono>
+#include <string>
+#include <vector>
+#include <sys/types.h>
+#include <sys/time.h>
+#include <sys/resource.h>
 
-#include "bytes.h"
+#include "file.h"
 #include "types.h"
-#include "readable.h"
-#include "writable.h"
 
 namespace subprocess {
 
-class PopenBuilder {
-public:
-    Popen* build();
-    void set_args(type::args_t&& param);
-    void set_bufsize(type::bufsize_t&& param);
-    void set_executable(type::executable_t&& param);
-    void set_preexec_fn(type::preexec_fn_t&& param);
-    void set_stdin(type::stdin_t&& param);
-    void set_stdout(type::stdout_t&& param);
-    void set_stderr(type::stderr_t&& param);
-
-private:
-    type::args_t        args_;
-    type::bufsize_t     bufsize_;
-    type::executable_t  executable_;
-    type::preexec_fn_t  preexec_fn_;
-    type::stdin_t       stdin_;
-    type::stdout_t      stdout_;
-    type::stderr_t      stderr_;
-};
+struct ConfigProcess {
+    explicit ConfigProcess() = default;
+    explicit ConfigProcess(const ConfigRun& config)
+    : args(config.args),
+      bufsize(config.buf_size),
+      std_in(config.std_in),
+      std_out(config.std_out),
+      std_err(config.std_err),
+      preexec_fn(config.preexec_fn) {}
+     explicit ConfigProcess(ConfigRun&& config)
+    : args(std::move(config.args)),
+      bufsize(std::move(config.buf_size)),
+      std_in(std::move(config.std_in)),
+      std_out(std::move(config.std_out)),
+      std_err(std::move(config.std_err)),
+      preexec_fn(std::move(config.preexec_fn)) {}
+       
+    types::args_t       args;
+    types::bufsize_t    bufsize;
+    types::std_in_t     std_in;
+    types::std_out_t    std_out;
+    types::std_err_t    std_err;
+    types::preexec_fn_t preexec_fn;
+}; 
 
 class Popen {
 public:
-    ~Popen();
+    ~Popen()                                 = default;
+    Popen(const ConfigProcess& config);
+    Popen(ConfigProcess&& config);
+    Popen(const Popen& other)                = delete;
+    Popen(Popen&& other) noexcept            = delete;
 
-    Popen();
-    template <typename... Args>
-    Popen(Args&& ...args);
+    Popen& operator=(Popen& other)           = delete;
+    Popen& operator=(Popen&& other) noexcept = delete;
 
-    int poll();
-    int wait(int timeout = 0);
-    std::pair<Bytes, Bytes> communicate(const std::string& message, int timeout = 0);
-    void send_signal(int sig);
-    void terminate();
-    void kill();
+    std::vector<std::string> args() const;
+    ::pid_t                  pid() const;
+    ::rusage                 usage() const;
+    int                      returncode() const;
 
-    // args: vector of strings
-    // stdin:  
-    // stdout: 
-    // stderr: 
-    std::string args() const;
-    FILE* stdin() const;
-    FILE* stdout() const;
-    FILE* stderr() const;
-    pid_t pid() const;
-    int returncode() const;
+    int                      poll();
+    int                      wait(std::chrono::duration<double> timeout);
+
+    std::pair<Bytes, Bytes>  communicate(const Bytes& input, std::chrono::duration<double> timeout);
+    void                     send_signal(int signal);
+    void                     terminate();
+    void                     kill();
+
+    static constexpr int INVALID_RET = (1 << 8);
 
 private:
-    template<typename T, typename... Args>
-    void set_args(PopenBuilder& builder, T&& arg, Args&& ...args);
-    void set_args(PopenBuilder& builder);
+    void                     set_bufsize(size_t size);
+    void                     set_returncode(int status);
+    void                     execute();
 
+    std::vector<std::string> args_;
+    size_t                   bufsize;
+    std::function<void()>    preexec_fn;
 
-    std::unique_ptr<IReadable> input_;
-    std::unique_ptr<IWritable> output_;
-    std::unique_ptr<IWritable> error_;
+    File                     std_in_;
+    File                     std_in_handle_;
+    File                     std_out_;
+    File                     std_out_handle_;
+    File                     std_err_;
+    File                     std_err_handle_;
 
-    std::unique_ptr<PipeReader> pipe_in_;
-    std::unique_ptr<PipeWriter> pipe_out_;
-    std::unique_ptr<PipeWriter> pipe_err_;
+    ::pid_t                  pid_;
+    ::rusage                 usage_;
+    int                      returncode_;
+    bool                     is_terminated_;
 };
+
+class TimeoutExpired : public std::runtime_error {
+public:
+    explicit TimeoutExpired(const std::string& msg, std::chrono::duration<double> timeout) 
+    : std::runtime_error(msg + " Timed out after" + std::to_string(timeout.count()) +" seconds.") {}
+};
+
+struct ConfigRun {
+    types::args_t                 args;
+    types::bufsize_t              buf_size;
+    types::std_in_t               std_in;
+    types::std_out_t              std_out;
+    types::std_err_t              std_err;
+    types::preexec_fn_t           preexec_fn;
+    Bytes                         input;   
+    std::chrono::duration<double> timeout;
+};
+
+struct CompletedProcess {
+    std::vector<std::string> args;
+    int                      returncode;
+    Bytes                    std_out;
+    Bytes                    std_err;
+    ::rusage                 usage;
+};
+
+CompletedProcess run(const ConfigRun& config) {
+    Popen p = ConfigProcess(config);
+
+    auto [std_out_data, std_err_data] = p.communicate(config.input, config.timeout);
+
+    CompletedProcess result = {
+        p.args(),
+        p.returncode(),
+        std_out_data,
+        std_err_data,
+        p.usage()
+    };
+
+    return result;
+}
 
 }
 

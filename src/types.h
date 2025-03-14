@@ -1,176 +1,175 @@
 #ifndef TYPES_H
 #define TYPES_H
 
-#include <memory>
-#include <string>
-#include <vector>
 #include <functional>
-#include <filesystem>
 
-#include "readable.h"
-#include "writable.h"
-#include "utils.h"
+#include "popen.h"
 
 namespace subprocess {
 
-namespace type {
+namespace types {
 
-enum IOOption {
-    NA,
+struct args_t {
+    explicit args_t() = default;
+
+    template<typename... Params>
+    explicit args_t(Params&&... params) : args(concat(std::forward<Params>(params)...)) {}
+
+    template<typename... Params>
+    std::vector<std::string> concat(Params&&... params) { return {std::forward<Params>(params)...}; }
+
+    std::vector<std::string> args;
+};
+
+struct bufsize_t {
+    explicit bufsize_t() : bufsize(-1) {}
+    explicit bufsize_t(size_t bufsize) : bufsize(bufsize) {}
+
+    size_t bufsize;
+};
+
+enum class IOOption {
+    NONE,
     PIPE,
     STDOUT,
     DEVNULL
 };
 
-struct args_t {
-    template <typename... Args>
-    explicit args_t(Args... args) {
-        utils::Concatenator concatenator; 
-        value = concatenator.concat(args...);
-    } 
-    std::string value;
+struct std_in_t {
+    explicit std_in_t() = default;
+    explicit std_in_t(FILE* fp) : std_in(fp) {}
+    explicit std_in_t(int fd) : std_in(fd) {}
+    explicit std_in_t(IOOption option) {
+        switch (option) {
+            case IOOption::NONE:
+                break;
+            case IOOption::PIPE:
+                int pipe_fd[2];
+                if (pipe(pipe_fd) == -1) {
+                    throw std::system_error(errno, std::generic_category(), "ERROR::SUBPROCESS: Failed to open pipe.");
+                }
+                std_in.open(pipe_fd[0], true);
+                std_in_handle.open(pipe_fd[1], true);
+                break;
+            default:
+                throw std::runtime_error("ERROR::SUBPROCESS: Invalid I/O option.");
+        }
+    }
+    explicit std_in_t(const std::filesystem::path& file) {
+        if (!std::filesystem::exists(file)) {
+            throw std::runtime_error("ERROR::SUBPROCESS: File '" + file.string() + "' not exists.");
+        }
+
+        FILE* fp = fopen(file.c_str(), filemode_to_string(FileMode::READ_BYTE).c_str());
+        if (fp == nullptr) {
+            throw std::system_error(errno, std::generic_category(), "ERROR::SUBPROCESS: Failed to open file '" + file.string() + "'.");
+        }
+        std_in.open(fp, true);
+    }
+
+    File std_in;
+    File std_in_handle;
 };
 
-struct bufsize_t {
-    explicit bufsize_t(size_t bufsize) : value(bufsize) {}
-    size_t value = -1;
+struct std_out_t {
+    explicit std_out_t() = default;
+    explicit std_out_t(FILE* fp) : std_out(fp) {}
+    explicit std_out_t(int fd) : std_out(fd) {}
+    explicit std_out_t(IOOption option) {
+        switch (option) {
+            case IOOption::NONE:
+                break;
+            case IOOption::PIPE:
+                int pipe_fd[2];
+                if (pipe(pipe_fd) == -1) {
+                    throw std::system_error(errno, std::generic_category(), "ERROR::SUBPROCESS: Failed to open pipe.");
+                }
+                std_out.open(pipe_fd[1], true);
+                std_out_handle.open(pipe_fd[0], true);
+                break;
+            case IOOption::DEVNULL:
+                FILE* fp = fopen("/dev/null", filemode_to_string(FileMode::WRITE_BYTE).c_str());
+                if (fp == nullptr) {
+                    throw std::system_error(errno, std::generic_category(), "ERROR::SUBPROCESS: Failed to open /dev/null.");
+                }
+                std_out.open(fp, true);
+                break;
+            default:
+                throw std::runtime_error("ERROR::SUBPROCESS: Invalid I/O option.");
+        }
+    }
+    explicit std_out_t(const std::filesystem::path& file) {
+        if (!std::filesystem::exists(file)) {
+            throw std::runtime_error("ERROR::SUBPROCESS: File '" + file.string() + "' not exists.");
+        }
+
+        FILE* fp = fopen(file.c_str(), filemode_to_string(FileMode::WRITE_BYTE).c_str());
+        if (fp == nullptr) {
+            throw std::system_error(errno, std::generic_category(), "ERROR::SUBPROCESS: Failed to open file '" + file.string() + "'.");
+        }
+        std_out.open(fp, true);
+    }
+
+    File std_out;
+    File std_out_handle;
 };
 
-struct executable_t {
-    explicit executable_t(const std::string& executable) : value(executable) {}
-    std::string value = "/bin/sh";
+struct std_err_t {
+    explicit std_err_t() = default;
+    explicit std_err_t(FILE* fp) : std_err(fp) {}
+    explicit std_err_t(int fd) : std_err(fd) {}
+    explicit std_err_t(IOOption option) {
+        switch (option) {
+            case IOOption::NONE:
+                break;
+            case IOOption::PIPE:
+                int pipe_fd[2];
+                if (pipe(pipe_fd) == -1) {
+                    throw std::system_error(errno, std::generic_category(), "ERROR::SUBPROCESS: Failed to open pipe.");
+                }
+                std_err.open(pipe_fd[1], true);
+                std_err_handle.open(pipe_fd[0], true);
+                break;
+            case IOOption::DEVNULL:
+                FILE* fp = fopen("/dev/null", filemode_to_string(FileMode::WRITE_BYTE).c_str());
+                if (fp == nullptr) {
+                    throw std::system_error(errno, std::generic_category(), "ERROR::SUBPROCESS: Failed to open /dev/null.");
+                }
+                std_err.open(fp, true);
+                break;
+            case IOOption::STDOUT:
+                is_stdout = true;
+                break;
+            default:
+                throw std::runtime_error("ERROR::SUBPROCESS: Invalid I/O option.");
+        }
+    }
+    explicit std_err_t(const std::filesystem::path& file) {
+        if (!std::filesystem::exists(file)) {
+            throw std::runtime_error("ERROR::SUBPROCESS: File '" + file.string() + "' not exists.");
+        }
+
+        FILE* fp = fopen(file.c_str(), filemode_to_string(FileMode::WRITE_BYTE).c_str());
+        if (fp == nullptr) {
+            throw std::system_error(errno, std::generic_category(), "ERROR::SUBPROCESS: Failed to open file '" + file.string() + "'.");
+        }
+        std_err.open(fp, true);
+    }
+
+    File std_err;
+    File std_err_handle;
+    bool is_stdout = false;
 };
 
 struct preexec_fn_t {
-    explicit preexec_fn_t(const std::function<void()> preexec_fn) : value(preexec_fn) {}
-    std::function<void()> value = [] {};
-};
+    explicit preexec_fn_t() : preexec_fn([] {}) {}
+    explicit preexec_fn_t(std::function<void()> fn) : preexec_fn(fn) {}
 
-struct stdin_t {
-    explicit stdin_t(int fd) : value(std::make_unique<FileReader>(fd)) {}
-    explicit stdin_t(FILE* fp) : value(std::make_unique<FileReader>(fp)) {}
-    explicit stdin_t(std::istream& stream) : value(std::make_unique<StreamReader>(stream)) {}
-    explicit stdin_t(IOOption opt) : option(opt) {}
-    explicit stdin_t(const std::filesystem::path& path) {
-        if (std::filesystem::is_empty(path)) {
-            throw std::runtime_error(""); // TODO
-        }
-        // TODO
-    }
-    std::unique_ptr<IReadable> value;
-    IOOption option = NA;
-};
-
-struct input_t {
-
-};
-
-struct stdout_t {
-    explicit stdout_t(int fd) : value(std::make_unique<FileWriter>(fd)) {}
-    explicit stdout_t(FILE* fp) : value(std::make_unique<FileWriter>(fp)) {}
-    explicit stdout_t(std::ostream& stream) : value(std::make_unique<StreamWriter>(stream)) {}
-    explicit stdout_t(IOOption opt) : option(opt) {}
-    explicit stdout_t(const std::filesystem::path& path) {
-        if (std::filesystem::is_empty(path)) {
-            throw std::runtime_error(""); // TODO
-        }
-        // TODO
-    }
-    std::unique_ptr<IWritable> value;
-    IOOption option = NA;
-};
-
-struct stderr_t {
-    explicit stderr_t(int fd) : value(std::make_unique<FileWriter>(fd)) {}
-    explicit stderr_t(FILE* fp) : value(std::make_unique<FileWriter>(fp)) {}
-    explicit stderr_t(std::ostream& stream) : value(std::make_unique<StreamWriter>(stream)) {}
-    explicit stderr_t(IOOption opt) : option(opt) {}
-    explicit stderr_t(const std::filesystem::path& path) {
-        if (std::filesystem::is_empty(path)) {
-            throw std::runtime_error(""); // TODO
-        }
-        // TODO
-    }
-    std::unique_ptr<IWritable> value;
-    IOOption option = NA;
-};
-
-struct capture_output_t {
-
-};
-
-struct shell_t {
-    explicit shell_t(bool shell) : value(shell) {}
-    bool value = false;
-};
-
-struct cwd_t {
-    explicit cwd_t(const std::filesystem::path& cwd) : value(cwd) {}
-    std::filesystem::path value;
-};
-
-struct timeout_t {
-    
-};
-
-struct check_t {
-
-};
-
-struct encoding {
-
-};
-
-struct errors {
-
-};
-
-struct text {
-
-};
-
-struct env {
-
-};
-
-struct universal_newlines {
-
-};
-
-struct startupinfo {
-
-};
-
-struct creationflags {
-
-};
-
-struct resotre_signals {
-
-};
-
-struct start_new_session {
-
-};
-
-struct pass_fds {
-
-};
-
-struct group {
-
-};
-
-struct extra_groups {
-
-};
-
-struct memory_limit {
-
+    std::function<void()> preexec_fn;
 };
 
 }
 
 }
 
-#endif 
+#endif
