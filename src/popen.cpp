@@ -95,26 +95,38 @@ int Popen::wait(std::chrono::duration<double> timeout) {
         return returncode_;
     }
 
-    auto start_time = std::chrono::steady_clock::now();
-
-    while (true) {
+    if (timeout == std::chrono::duration<double>(0)) {
         int status;
-        int pid = wait4(pid_, &status, WNOHANG, &usage_);
+        int pid = wait4(pid_, &status, NULL, &usage_);
 
         if (pid == -1) {
             throw std::system_error(errno, std::generic_category(), "ERROR::SUBPROCESS::POPEN: Failed to wait subprocess.");
         } else if (pid == pid_) {
             set_returncode(status);
             is_terminated_ = true;
-            break;
         }
+    } else {
+        auto start_time = std::chrono::steady_clock::now();
 
-        auto elapsed_time = std::chrono::steady_clock::now() - start_time;
-        if (elapsed_time >= timeout) {
-            break;
+        while (true) {
+            int status;
+            int pid = wait4(pid_, &status, WNOHANG, &usage_);
+
+            if (pid == -1) {
+                throw std::system_error(errno, std::generic_category(), "ERROR::SUBPROCESS::POPEN: Failed to wait subprocess.");
+            } else if (pid == pid_) {
+                set_returncode(status);
+                is_terminated_ = true;
+                break;
+            }
+
+            auto elapsed_time = std::chrono::steady_clock::now() - start_time;
+            if (elapsed_time >= timeout) {
+                break;
+            }
+
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
-
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 
     return returncode_;
@@ -125,9 +137,19 @@ std::pair<Bytes, Bytes> Popen::communicate(const Bytes& input, std::chrono::dura
         std_in_handle_.write(input);
     }
 
-    if (wait(timeout) == INVALID_RET) {
-        throw TimeoutExpired("ERROR::SUBPROCESS::POPEN: Failed to communicate with process.", timeout);
+    if (timeout == std::chrono::duration<double>(0)) {
+        if (wait(timeout) == INVALID_RET) {
+            throw std::runtime_error("ERROR::SUBPROCESS::POPEN: Failed to wait process.");
+        }
+    } else {
+        if (wait(timeout) == INVALID_RET) {
+            throw TimeoutExpired("ERROR::SUBPROCESS::POPEN: Failed to communicate with process.", timeout);
+        }
     }
+
+    // Close pipe after writing to retrieve result
+    std_in_handle_.close();
+    fclose(std_in_handle_.filepointer());
 
     Bytes std_out_data;
     if (std_out_handle_.is_opened()) {
@@ -166,7 +188,7 @@ void Popen::set_bufsize(size_t size) {
         mode = _IOFBF;
     } else {
         mode = _IOFBF;
-        size = NULL;
+        size = static_cast<size_t>(NULL);
     }
 
     std::vector<File> files{std_in_, std_in_handle_, std_out_, std_out_handle_, std_err_, std_err_handle_};

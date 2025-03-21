@@ -77,9 +77,10 @@ struct std_out_t {
     explicit std_out_t(int fd) : std_out(fd) {}
     explicit std_out_t(IOOption option) {
         switch (option) {
-            case IOOption::NONE:
+            case IOOption::NONE: {
                 break;
-            case IOOption::PIPE:
+            }
+            case IOOption::PIPE: {
                 int pipe_fd[2];
                 if (pipe(pipe_fd) == -1) {
                     throw std::system_error(errno, std::generic_category(), "ERROR::SUBPROCESS: Failed to open pipe.");
@@ -87,15 +88,18 @@ struct std_out_t {
                 std_out.open(pipe_fd[1], true);
                 std_out_handle.open(pipe_fd[0], true);
                 break;
-            case IOOption::DEVNULL:
+            }
+            case IOOption::DEVNULL: {
                 FILE* fp = fopen("/dev/null", filemode_to_string(FileMode::WRITE_BYTE).c_str());
                 if (fp == nullptr) {
                     throw std::system_error(errno, std::generic_category(), "ERROR::SUBPROCESS: Failed to open /dev/null.");
                 }
                 std_out.open(fp, true);
                 break;
-            default:
+            }
+            default: {
                 throw std::runtime_error("ERROR::SUBPROCESS: Invalid I/O option.");
+            }
         }
     }
     explicit std_out_t(const std::filesystem::path& file) {
@@ -120,9 +124,10 @@ struct std_err_t {
     explicit std_err_t(int fd) : std_err(fd) {}
     explicit std_err_t(IOOption option) {
         switch (option) {
-            case IOOption::NONE:
+            case IOOption::NONE: {
                 break;
-            case IOOption::PIPE:
+            }
+            case IOOption::PIPE: {
                 int pipe_fd[2];
                 if (pipe(pipe_fd) == -1) {
                     throw std::system_error(errno, std::generic_category(), "ERROR::SUBPROCESS: Failed to open pipe.");
@@ -130,18 +135,22 @@ struct std_err_t {
                 std_err.open(pipe_fd[1], true);
                 std_err_handle.open(pipe_fd[0], true);
                 break;
-            case IOOption::DEVNULL:
+            }
+            case IOOption::DEVNULL: {
                 FILE* fp = fopen("/dev/null", filemode_to_string(FileMode::WRITE_BYTE).c_str());
                 if (fp == nullptr) {
                     throw std::system_error(errno, std::generic_category(), "ERROR::SUBPROCESS: Failed to open /dev/null.");
                 }
                 std_err.open(fp, true);
                 break;
-            case IOOption::STDOUT:
+            }
+            case IOOption::STDOUT: {
                 is_stdout = true;
                 break;
-            default:
+            }
+            default: {
                 throw std::runtime_error("ERROR::SUBPROCESS: Invalid I/O option.");
+            }
         }
     }
     explicit std_err_t(const std::filesystem::path& file) {

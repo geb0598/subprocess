@@ -5,11 +5,13 @@
 #include <string>
 #include <vector>
 
-#include <unistd.h>
+#include <fcntl.h>
 #include <stdio.h>
+#include <unistd.h>
 
 #include "bytes.h"
 
+namespace {
 namespace subprocess {
 
 enum class FileMode {
@@ -28,7 +30,7 @@ enum class FileMode {
     APPENDREAD_BYTE
 };
 
-std::string filemode_to_string(FileMode mode) {
+inline std::string filemode_to_string(FileMode mode) {
     switch (mode) {
         case FileMode::READ:
             return "r";
@@ -59,7 +61,7 @@ std::string filemode_to_string(FileMode mode) {
     }
 }
 
-FileMode flags_to_filemode(int flags) {
+inline FileMode flags_to_filemode(int flags) {
     if (flags & O_APPEND) {
         if (flags & O_WRONLY) {
             return FileMode::APPEND_BYTE;
@@ -79,7 +81,7 @@ FileMode flags_to_filemode(int flags) {
     }
 }
 
-bool is_readable_filemode(FileMode mode) {
+inline bool is_readable_filemode(FileMode mode) {
     return mode == FileMode::READ            ||
            mode == FileMode::READWRITE       ||
            mode == FileMode::WRITEREAD       ||
@@ -90,7 +92,7 @@ bool is_readable_filemode(FileMode mode) {
            mode == FileMode::APPENDREAD_BYTE;
 }
 
-bool is_writable_filemode(FileMode mode) {
+inline bool is_writable_filemode(FileMode mode) {
     return mode == FileMode::READWRITE       ||
            mode == FileMode::WRITE           ||
            mode == FileMode::WRITEREAD       ||
@@ -107,6 +109,7 @@ class File {
 public:
     ~File() = default;
     File();
+    // TODO: Unable to extract file information from fcntl, because it doesn't distinguish text mode and binary mode.
     File(FILE* fp, bool is_owner = false);
     File(int fd, bool is_owner = false, FileMode mode = FileMode::NONE);
     File(const std::filesystem::path& file, FileMode mode);
@@ -145,6 +148,8 @@ private:
     FileMode              mode_;
     bool                  is_owner_;
 };
+
+}
 
 }
 

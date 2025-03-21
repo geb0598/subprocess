@@ -116,9 +116,8 @@ void File::open(const std::filesystem::path& file, FileMode mode) {
     }
 
     FILE* fp = fopen(file.c_str(), filemode_to_string(mode).c_str());
-
-    if (fp_ == nullptr) {
-        throw std::runtime_error("ERROR::SUBPROCESS::FILE: Failed to open " + file.string() + ".");
+    if (fp == nullptr) {
+        throw std::system_error(errno, std::generic_category(), "ERROR::SUBPROCESS::FILE: Failed to open " + file.string() + ".");
     }
 
     fp_.reset(fp, [] (FILE* file) { fclose(file); });
@@ -127,6 +126,10 @@ void File::open(const std::filesystem::path& file, FileMode mode) {
 }
 
 void File::close() {
+    if (!is_opened()) {
+        return;
+    }
+
     if (is_owner()) {
         fp_       = nullptr;
         is_owner_ = false;
@@ -193,7 +196,6 @@ Bytes File::read(Bytes::size_type n) const {
 }
 
 Bytes File::readline(Bytes::size_type n) const {
-    static_assert(std::is_same_v<Bytes::value_type, char>);
 
     if (!is_opened()) {
         throw std::runtime_error("ERROR::SUBPROCESS::FILE: File is not opened.");
@@ -252,6 +254,7 @@ void File::write(const Bytes& bytes) {
         }
         total_size += written_size;
     }
+    std::fflush(filepointer());
 }
 
 }

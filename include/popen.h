@@ -4,14 +4,26 @@
 #include <chrono>
 #include <string>
 #include <vector>
-#include <sys/types.h>
-#include <sys/time.h>
+
 #include <sys/resource.h>
+#include <sys/time.h>
+#include <sys/types.h>
 
 #include "file.h"
 #include "types.h"
 
 namespace subprocess {
+
+struct ConfigRun {
+    types::args_t                 args;
+    types::bufsize_t              buf_size;
+    types::std_in_t               std_in;
+    types::std_out_t              std_out;
+    types::std_err_t              std_err;
+    types::preexec_fn_t           preexec_fn;
+    Bytes                         input;   
+    std::chrono::duration<double> timeout;
+};
 
 struct ConfigProcess {
     explicit ConfigProcess() = default;
@@ -55,9 +67,9 @@ public:
     int                      returncode() const;
 
     int                      poll();
-    int                      wait(std::chrono::duration<double> timeout);
+    int                      wait(std::chrono::duration<double> timeout = std::chrono::duration<double>(0));
 
-    std::pair<Bytes, Bytes>  communicate(const Bytes& input, std::chrono::duration<double> timeout);
+    std::pair<Bytes, Bytes>  communicate(const Bytes& input, std::chrono::duration<double> timeout = std::chrono::duration<double>(0));
     void                     send_signal(int signal);
     void                     terminate();
     void                     kill();
@@ -89,18 +101,7 @@ private:
 class TimeoutExpired : public std::runtime_error {
 public:
     explicit TimeoutExpired(const std::string& msg, std::chrono::duration<double> timeout) 
-    : std::runtime_error(msg + " Timed out after" + std::to_string(timeout.count()) +" seconds.") {}
-};
-
-struct ConfigRun {
-    types::args_t                 args;
-    types::bufsize_t              buf_size;
-    types::std_in_t               std_in;
-    types::std_out_t              std_out;
-    types::std_err_t              std_err;
-    types::preexec_fn_t           preexec_fn;
-    Bytes                         input;   
-    std::chrono::duration<double> timeout;
+    : std::runtime_error(msg + " Timed out after " + std::to_string(timeout.count()) +" seconds.") {}
 };
 
 struct CompletedProcess {
@@ -111,7 +112,7 @@ struct CompletedProcess {
     ::rusage                 usage;
 };
 
-CompletedProcess run(const ConfigRun& config) {
+inline CompletedProcess run(const ConfigRun& config) {
     Popen p = ConfigProcess(config);
 
     auto [std_out_data, std_err_data] = p.communicate(config.input, config.timeout);

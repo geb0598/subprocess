@@ -2,7 +2,7 @@
 
 namespace subprocess {
 
-Bytes::Bytes(size_type n, value_type val = value_type()) : bytes_(n, val) {}
+Bytes::Bytes(size_type n, value_type val) : bytes_(n, val) {}
 
 Bytes::value_type& Bytes::operator[](size_type n) {
     return bytes_[n];
@@ -20,7 +20,7 @@ bool Bytes::empty() const {
     return bytes_.empty();
 }
 
-void Bytes::resize(size_type n, value_type val = value_type()) {
+void Bytes::resize(size_type n, value_type val) {
     bytes_.resize(n, val);
 }
 
@@ -42,6 +42,14 @@ Bytes::value_type* Bytes::data() {
 
 const Bytes::value_type* Bytes::data() const {
     return bytes_.data();
+}
+
+char* Bytes::c_str() {
+    return static_cast<char*>(data());
+}
+
+const char* Bytes::c_str() const {
+    return static_cast<const char*>(data());
 }
 
 }
