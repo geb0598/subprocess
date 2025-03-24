@@ -1,257 +1,264 @@
-#include <thread>
-
 #include <sys/wait.h>
 
+#include "exception.h"
 #include "popen.h"
 
 namespace subprocess {
 
-Popen::Popen(const ConfigProcess& config) : pid_(-1), returncode_(INVALID_RET), is_terminated_(false) {
-    args_           = config.args.args;
-    bufsize         = config.bufsize.bufsize;
-    std_in_         = config.std_in.std_in;
-    std_in_handle_  = config.std_in.std_in_handle;
-    std_out_        = config.std_out.std_out;
-    std_out_handle_ = config.std_out.std_out_handle;
-    if (config.std_err.is_stdout) {
-        std_err_    = config.std_out.std_out;
-    } else {
-        std_err_    = config.std_err.std_err;
-    }
-    std_err_handle_ = config.std_err.std_err_handle;
-    preexec_fn      = config.preexec_fn.preexec_fn;
+void PopenConfig::set_value(const types::args_t& args)             { this->args = args; }
+void PopenConfig::set_value(types::args_t&& args)                  { this->args = std::move(args); }
+void PopenConfig::set_value(const types::bufsize_t& bufsize)       { this->bufsize = bufsize; }
+void PopenConfig::set_value(types::bufsize_t&& bufsize)            { this->bufsize = std::move(bufsize); }
+void PopenConfig::set_value(const types::std_in_t& std_in)         { this->std_in = std_in; }
+void PopenConfig::set_value(types::std_in_t&& std_in)              { this->std_in = std::move(std_in); }
+void PopenConfig::set_value(const types::std_out_t& std_out)       { this->std_out = std_out; }
+void PopenConfig::set_value(types::std_out_t&& std_out)            { this->std_out = std::move(std_out); }
+void PopenConfig::set_value(const types::std_err_t& std_err)       { this->std_err = std_err; }
+void PopenConfig::set_value(types::std_err_t&& std_err)            { this->std_err = std::move(std_err); }
+void PopenConfig::set_value(const types::preexec_fn_t& preexec_fn) { this->preexec_fn = preexec_fn; }
+void PopenConfig::set_value(types::preexec_fn_t&& preexec_fn)      { this->preexec_fn = std::move(preexec_fn); }
 
-    execute();
+void PopenConfig::validate() {
+    if (!args)       throw std::invalid_argument("Missing required 'args' argument.");
+    if (!bufsize)    throw std::invalid_argument("Missing required 'bufsize' argument.");
+    if (!std_in)     throw std::invalid_argument("Missing required 'std_in' argument.");
+    if (!std_out)    throw std::invalid_argument("Missing required 'std_out' argument.");
+    if (!std_err)    throw std::invalid_argument("Missing required 'std_err' argument.");
+    if (!preexec_fn) throw std::invalid_argument("Missing required 'preexec_fn' argument.");
 }
 
-Popen::Popen(ConfigProcess&& config) : pid_(-1), returncode_(INVALID_RET), is_terminated_(false) {
-    args_           = std::move(config.args.args);
-    bufsize         = std::move(config.bufsize.bufsize);
-    std_in_         = std::move(config.std_in.std_in);
-    std_in_handle_  = std::move(config.std_in.std_in_handle);
-    std_out_        = std::move(config.std_out.std_out);
-    std_out_handle_ = std::move(config.std_out.std_out_handle);
-    if (config.std_err.is_stdout) {
-        std_err_    = std::move(config.std_out.std_out);
-    } else {
-        std_err_    = std::move(config.std_err.std_err);
-    }
-    std_err_handle_ = std::move(config.std_err.std_err_handle);
-    preexec_fn      = std::move(config.preexec_fn.preexec_fn);
+/* ===================================== Popen ===================================== */
 
-    execute();
+Popen::Popen(PopenConfig&& config) : config_(std::move(config)), pid_(-1), usage_(std::nullopt), returncode_(std::nullopt) {
+    /** Throws a std::invalid_argument exception when required argument is missing. */
+    config_.validate();
+
+    /** Alias references for optional configuration values. */
+    auto& args       = config_.args.value();
+    auto& std_in     = config_.std_in.value();
+    auto& std_out    = config_.std_out.value();
+    auto& std_err    = config_.std_err.value();
+    auto& bufsize    = config_.bufsize.value();
+    auto& preexec_fn = config_.preexec_fn.value();
+
+    /** Pipe handles for the parent process. */
+    File* parent_fps[3] = { 
+        std_in.pipe_writer.get(), 
+        std_out.pipe_reader.get(), 
+        std_err.pipe_reader.get() 
+    };
+    for (auto fp : parent_fps) {
+        if (fp && fp->is_opened()) {
+            fp->set_bufsize(bufsize.bufsize);
+        }
+    }
+
+    if (std_err.is_std_out)
+        std_err.pipe_writer = std_out.pipe_writer;
+
+    /** Pipe handles for the child process. */
+    File* child_fps[3] = {
+        std_in.pipe_reader.get(), 
+        std_out.pipe_writer.get(), 
+        std_err.pipe_writer.get() 
+    };
+
+    /** Streams source and destinations for stdin, stdout and stderr with matching file descriptors. */
+    std::pair<Streamable*, int> streams[3] = {
+        { static_cast<Streamable*>(std_in.source.get()),       STDIN_FILENO  },
+        { static_cast<Streamable*>(std_out.destination.get()), STDOUT_FILENO },
+        { static_cast<Streamable*>(std_err.destination.get()), STDERR_FILENO }
+    };
+
+    pid_ = ::fork();
+    if (pid_ == -1) {
+        throw std::runtime_error("Failed to fork a process.");
+    } else if (pid_ == 0) {
+        for (auto fp : parent_fps) {
+            if (fp) fp->close();
+        }
+        /** If the stream is of a type that provides a valid file descriptor,  
+         *  use dup2 to directly connect the child process's stdin, stdout, or stderr. */
+        for (int i = 0; i < 3; ++i) {
+            auto [stream, fd] = streams[i];
+            auto fp           = child_fps[i];
+            if (stream && stream->fileno() != -1) {
+                if (::dup2(stream->fileno(), fd) == -1) {
+                    ::perror("Failed to duplicate file descriptor.");
+                    ::_exit(EXIT_FAILURE);
+                }
+            } else if (fp && fp->fileno() != -1) {
+                if (::dup2(fp->fileno(), fd) == -1) {
+                    ::perror("Failed to duplicate file descriptor.");
+                    ::_exit(EXIT_FAILURE);
+                }
+            }
+        }
+
+        // TODO: clo_exec
+        for (auto fp : child_fps) {
+            if (fp) fp->close();
+        }
+        for (auto [stream, fd] : streams) {
+            if (stream) stream->close();
+        }
+
+        preexec_fn.preexec_fn();
+
+        std::vector<char*> c_args;
+        for (auto& arg : args.args) 
+            c_args.push_back(arg.data());
+        c_args.push_back(nullptr);
+        ::execv(c_args[0], c_args.data());
+        ::perror("Failed to execute a program");
+        ::_exit(EXIT_FAILURE);
+    } else {
+        for (auto fp : child_fps) {
+            if (fp) fp->close();
+        }
+        /** If a source or destination is specified, start communication with a pipe connected 
+         * to child process through a thread, simulating the behavior of dup2. */
+        for (int i = 0; i < 3; ++i) {
+            if (streams[i].first && parent_fps[i]) {
+                IStreamable* istream;
+                OStreamable* ostream;
+                if (i == 0) {
+                    istream = dynamic_cast<IStreamable*>(streams[i].first);
+                    ostream = parent_fps[i];
+               } else {
+                    istream = parent_fps[i];
+                    ostream = dynamic_cast<OStreamable*>(streams[i].first);
+                }
+                comm_results[i] = communicate_async(*istream, *ostream, true); 
+            } 
+        }
+    }
 }
 
 std::vector<std::string> Popen::args() const {
-    return args_;
+    if (!config_.args.has_value())
+        throw std::runtime_error("Missing required 'args' argument.");
+    return config_.args.value().args;
+}
+::pid_t                 Popen::pid() const        { return pid_;        }
+std::optional<::rusage> Popen::usage() const      { return usage_;      }
+std::optional<int>      Popen::returncode() const { return returncode_; }
+
+std::optional<std::shared_ptr<OStreamable>> Popen::std_in() {
+    if (!config_.std_in.has_value())
+        throw std::runtime_error("Missing required 'std_in' argument.");
+    auto& std_in = config_.std_in.value();
+    if (std_in.pipe_writer && std_in.pipe_writer->is_opened() && !(std_in.source && std_in.source->is_opened()))
+        return std_in.pipe_writer;
+    else
+        return std::nullopt;
+}
+std::optional<std::shared_ptr<IStreamable>> Popen::std_out() {
+    if (!config_.std_out.has_value())
+        throw std::runtime_error("Missing required 'std_out' argument."); 
+    auto& std_out = config_.std_out.value();
+    if (std_out.pipe_reader && std_out.pipe_reader->is_opened() && !(std_out.destination && std_out.destination->is_opened()))
+        return std_out.pipe_reader;
+    else
+        return std::nullopt;
+}
+std::optional<std::shared_ptr<IStreamable>> Popen::std_err() {
+    if (!config_.std_err.has_value())
+        throw std::runtime_error("Missing required 'std_err' argument."); 
+    auto& std_err = config_.std_err.value();
+    if (std_err.pipe_reader && std_err.pipe_reader->is_opened() && !(std_err.destination && std_err.destination->is_opened()))
+        return std_err.pipe_reader;
+    else
+        return std::nullopt;
 }
 
-::pid_t Popen::pid() const {
-    return pid_;
-}
-
-::rusage Popen::usage() const {
-    if (!is_terminated_) {
-        throw std::runtime_error ( 
-            "ERROR::SUBPROCESS:POPEN: Process termination not detected. "
-            "Ensure that wait(), poll() or communicate() has been called before accessing resource usage."
-        );
-    }
-
-    return usage_;
-}
-
-int Popen::returncode() const {
-    if (!is_terminated_) {
-        throw std::runtime_error (
-            "ERROR::SUBPROCESS:POPEN: Process termination not detected. "
-            "Ensure that wait(), poll() or communicate() has been called before accessing returncode."
-        );
-    }
-
-    return returncode_;
-}
-
-int Popen::poll() {
-    if (is_terminated_) {
-        return returncode_;
-    }
+std::optional<int> Popen::poll() {
+    if (returncode())
+        return returncode();
 
     int status;
-    int pid = wait4(pid_, &status, WNOHANG, &usage_);
+    ::rusage usage;
+    int pid = ::wait4(pid_, &status, WNOHANG, &usage);
 
     if (pid == -1) {
-        throw std::system_error(errno, std::generic_category(), "ERROR::SUBPROCESS::POPEN: Failed to wait subprocess.");
+        throw OSError(errno, std::generic_category(), "Failed to wait process");
     } else if (pid == pid_) {
+        /** Wait until the entire asynchronous communication is complete. */
+        comm_wait(); 
         set_returncode(status);
-        is_terminated_ = true;
-    } 
-
-    return returncode_;
-}
-
-int Popen::wait(std::chrono::duration<double> timeout) {
-    if (is_terminated_) {
-        return returncode_;
+        usage_ = usage;
     }
 
-    if (timeout == std::chrono::duration<double>(0)) {
-        int status;
-        int pid = wait4(pid_, &status, NULL, &usage_);
-
-        if (pid == -1) {
-            throw std::system_error(errno, std::generic_category(), "ERROR::SUBPROCESS::POPEN: Failed to wait subprocess.");
-        } else if (pid == pid_) {
-            set_returncode(status);
-            is_terminated_ = true;
-        }
+    return returncode();
+}
+std::optional<int> Popen::wait(double timeout) {
+    if (timeout < 0) {
+        while (!poll())
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        return returncode();
     } else {
         auto start_time = std::chrono::steady_clock::now();
-
-        while (true) {
-            int status;
-            int pid = wait4(pid_, &status, WNOHANG, &usage_);
-
-            if (pid == -1) {
-                throw std::system_error(errno, std::generic_category(), "ERROR::SUBPROCESS::POPEN: Failed to wait subprocess.");
-            } else if (pid == pid_) {
-                set_returncode(status);
-                is_terminated_ = true;
-                break;
-            }
-
-            auto elapsed_time = std::chrono::steady_clock::now() - start_time;
-            if (elapsed_time >= timeout) {
-                break;
-            }
-
+        while (std::chrono::steady_clock::now() - start_time < std::chrono::duration<double>(timeout)) {
+            if (poll())
+                return returncode();
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
+        throw TimeoutExpired("Failed to wait", std::chrono::steady_clock::now() - start_time);
     }
-
-    return returncode_;
 }
 
-std::pair<Bytes, Bytes> Popen::communicate(const Bytes& input, std::chrono::duration<double> timeout) {
-    if (!input.empty()) {
-        std_in_handle_.write(input);
+std::pair<
+    std::optional<Bytes>, 
+    std::optional<Bytes>> Popen::communicate(const Bytes& input, double timeout) {
+    auto& std_in  = config_.std_in.value();
+    auto& std_out = config_.std_out.value();
+    auto& std_err = config_.std_err.value();
+    if (std_in.pipe_writer && std_in.pipe_writer->is_opened())
+        std_in.pipe_writer->write(input, input.size()); 
+    else
+        throw std::runtime_error("Pipe is not opened.");
+
+    if (std_in.pipe_writer)
+        std_in.pipe_writer->close();
+
+    wait(timeout);
+
+    std::optional<Bytes> std_out_data;
+    if (std_out.pipe_reader && std_out.pipe_reader->is_opened()) {
+        std_out_data = std_out.pipe_reader->read_all();
+        std_out.pipe_reader->close();
     }
 
-    if (timeout == std::chrono::duration<double>(0)) {
-        if (wait(timeout) == INVALID_RET) {
-            throw std::runtime_error("ERROR::SUBPROCESS::POPEN: Failed to wait process.");
-        }
-    } else {
-        if (wait(timeout) == INVALID_RET) {
-            throw TimeoutExpired("ERROR::SUBPROCESS::POPEN: Failed to communicate with process.", timeout);
-        }
+    std::optional<Bytes> std_err_data;
+    if (std_err.pipe_reader && std_err.pipe_reader->is_opened()) {
+        std_err_data = std_err.pipe_reader->read_all();
+        std_err.pipe_reader->close();
     }
-
-    // Close pipe after writing to retrieve result
-    std_in_handle_.close();
-    fclose(std_in_handle_.filepointer());
-
-    Bytes std_out_data;
-    if (std_out_handle_.is_opened()) {
-        std_out_data = std_out_handle_.read();
-    }
-
-    Bytes std_err_data;
-    if (std_err_handle_.is_opened()) {
-        std_err_data = std_err_handle_.read();
-    }
-
+    
     return {std_out_data, std_err_data};
 }
 
 void Popen::send_signal(int signal) {
-    if (!is_terminated_) {
+    if (!returncode())
         ::kill(pid_, signal);
-    }
 }
+void Popen::terminate() { send_signal(SIGTERM); }
+void Popen::kill()      { send_signal(SIGKILL); }
 
-void Popen::terminate() {
-    send_signal(SIGTERM);
-}
-
-void Popen::kill() {
-    send_signal(SIGKILL);
-}
-
-void Popen::set_bufsize(size_t size) {
-    int mode;
-    if (size == 0) {
-        mode = _IONBF;
-    } else if (size == 1) {
-        mode = _IOLBF;
-    } else if (size > 0) {
-        mode = _IOFBF;
-    } else {
-        mode = _IOFBF;
-        size = static_cast<size_t>(NULL);
-    }
-
-    std::vector<File> files{std_in_, std_in_handle_, std_out_, std_out_handle_, std_err_, std_err_handle_};
-    for (auto file : files) {
-        if (file.is_opened()) {
-            file.set_bufsize(size, mode);
-        }
+void Popen::comm_wait() {
+    for (auto& comm_result : comm_results) {
+        if (comm_result.valid())
+            comm_result.wait();
     }
 }
 
 void Popen::set_returncode(int status) {
-    if (WIFSIGNALED(status)) {
+    if (WIFSIGNALED(status)) 
         returncode_ = -WTERMSIG(status);
-    } else if (WIFEXITED(status)) {
+    else if (WIFEXITED(status))
         returncode_ = WEXITSTATUS(status);
-    } else {
-        throw std::runtime_error("ERROR::SUBPROCESS::POPEN: Invalid return code detected.");
-    }
+    else
+        throw std::runtime_error("Invalid return code detected.");
 }
 
-void Popen::execute() {
-    pid_ = fork();
-    if (pid_ == -1) {
-        throw std::system_error(errno, std::generic_category(), "ERROR::SUBPROCESS::POPEN: Failed to fork child process.");
-    } else if (pid_ == 0) {
-        std_in_handle_.close();
-        std_out_handle_.close();
-        std_err_handle_.close();
-
-        if (std_in_.is_opened()) {
-            if (dup2(std_in_.fileno(), STDIN_FILENO) == -1) {
-                throw std::system_error(errno, std::generic_category(), "ERROR::SUBPROCESS::POPEN: Failed to duplicate input file descriptor.");
-            }
-        }
-
-        if (std_out_.is_opened()) {
-            if (dup2(std_out_.fileno(), STDOUT_FILENO) == -1) {
-                throw std::system_error(errno, std::generic_category(), "ERROR::SUBPROCESS::POPEN: Failed to duplicate output file descriptor.");
-            }
-        }
-
-        if (std_err_.is_opened()) {
-            if (dup2(std_err_.fileno(), STDERR_FILENO) == -1) {
-                throw std::system_error(errno, std::generic_category(), "ERROR::SUBPROCESS::POPEN: Failed to duplicate error file descriptor.");
-            }
-        }
-
-        std::vector<char*> c_args;
-        for (auto& arg : args_) {
-            c_args.push_back(arg.data());
-        }
-        c_args.push_back(nullptr);
-
-        preexec_fn();
-
-        execv(c_args[0], c_args.data());
-        perror("ERROR::SUBPROCESS::POPEN: Failed to execute program.");
-        exit(EXIT_FAILURE);
-    } else {
-        std_in_.close();
-        std_out_.close();
-        std_err_.close();
-    }
-}
-
-}
+} // namespace subprocess

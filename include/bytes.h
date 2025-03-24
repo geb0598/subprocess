@@ -8,7 +8,7 @@ namespace subprocess {
 
 class Bytes {
 public:
-//    using value_type = u_int8_t;
+//  using value_type = u_int8_t;
     using value_type = char;
     using size_type  = std::vector<value_type>::size_type;
 

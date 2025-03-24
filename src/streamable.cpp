@@ -155,8 +155,9 @@ Bytes::size_type File::write(const Bytes& buf, Bytes::size_type size) {
 }
 
 void File::close() { 
-    if (is_opened() && fclose(fp_) == -1)
+    if (is_opened() && ::fclose(fp_) == -1)
         throw OSError(errno, std::generic_category(), "Failed to close the file");
+    fp_ = nullptr;
 }
 void File::release() { fp_ = nullptr; }
 
@@ -356,7 +357,7 @@ void IOStream::open(std::iostream* stream) { stream_ = stream; }
 
 /* ===================================== Functions ===================================== */
 
-Bytes::size_type communicate(IStreamable& in, OStreamable& out) {
+Bytes::size_type communicate(IStreamable& in, OStreamable& out, bool auto_close) {
     if (!in.is_opened())
         throw std::runtime_error("Attempted to read from a closed stream.");
     if (!out.is_opened())
@@ -367,10 +368,13 @@ Bytes::size_type communicate(IStreamable& in, OStreamable& out) {
         throw std::runtime_error("Stream is not writable.");
 
     Bytes bytes = in.read_all();
-    return out.write(bytes, bytes.size());
+    if (auto_close) in.close();
+    Bytes::size_type size = out.write(bytes, bytes.size());
+    if (auto_close) out.close();
+    return size;
 }
 
-std::future<Bytes::size_type> communicate_async(IStreamable& in, OStreamable& out) {
+std::future<Bytes::size_type> communicate_async(IStreamable& in, OStreamable& out, bool auto_close) {
     if (!in.is_opened())
         throw std::runtime_error("Attempted to read from a closed stream.");
     if (!out.is_opened())
@@ -382,7 +386,10 @@ std::future<Bytes::size_type> communicate_async(IStreamable& in, OStreamable& ou
 
     return std::async(std::launch::async, [&]() {
          Bytes bytes = in.read_all();
-         return out.write(bytes, bytes.size());
+         if (auto_close) in.close();
+         Bytes::size_type size = out.write(bytes, bytes.size());
+         if (auto_close) out.close();
+         return size;
     });
 }
 

@@ -237,12 +237,13 @@ private:
  * 
  *  @param in The input stream (must be open and readable).
  *  @param out The output stream (must be open and writable).
+ *  @param auto_close If true, closes the streams after communication is complete. 
  * 
  *  @return The number of bytes written to the output stream.
  * 
  *  @throws std::runtime_error if any stream is not open, readable, writable, or an error occurs during reading/writing.
  */
-Bytes::size_type communicate(IStreamable& in, OStreamable& out);
+Bytes::size_type communicate(IStreamable& in, OStreamable& out, bool auto_close = false);
 
 /** @brief Asynchronously transfers data from the input stream to the output stream.
  *
@@ -250,6 +251,7 @@ Bytes::size_type communicate(IStreamable& in, OStreamable& out);
  * 
  *  @param in The input stream (must be open and readable).
  *  @param out The output stream (must be open and writable).
+ *  @param auto_close If true, closes the streams after communication is complete. 
  * 
  *  @return A future containing the number of bytes written to the output stream.
  * 
@@ -258,7 +260,7 @@ Bytes::size_type communicate(IStreamable& in, OStreamable& out);
  *  @note Streamable objects are not thread-safe. Avoid using this function with Streamable objects 
  *        that may be associated with common resources.
  */
-std::future<Bytes::size_type> communicate_async(IStreamable& in, OStreamable& out);
+std::future<Bytes::size_type> communicate_async(IStreamable& in, OStreamable& out, bool auto_close = false);
 
 } // namespace subprocess
 

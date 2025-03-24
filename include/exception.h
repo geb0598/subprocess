@@ -46,7 +46,11 @@ private:
     std::string message_;
 };
 
-// TODO: TimeExpried exception class
+class TimeoutExpired : public std::runtime_error {
+public:
+    TimeoutExpired(const std::string& msg, std::chrono::duration<double> timeout)
+    : std::runtime_error(msg + " Timed out after " + std::to_string(timeout.count()) +" seconds.") {}
+};
 
 }
 
