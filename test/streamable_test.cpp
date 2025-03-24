@@ -4,7 +4,7 @@
 
 #include <gtest/gtest.h>
 
-#include "streamable.h"
+#include "subprocess/streamable.h"
 
 /* ===================================== File Test ===================================== */
 class StreamableFileTest : public ::testing::Test {

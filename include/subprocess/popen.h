@@ -5,9 +5,9 @@
 
 #include <sys/resource.h>
 
-#include "bytes.h"
-#include "streamable.h"
-#include "types.h"
+#include "subprocess/bytes.h"
+#include "subprocess/streamable.h"
+#include "subprocess/types.h"
 
 namespace subprocess {
 

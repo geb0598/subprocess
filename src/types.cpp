@@ -2,8 +2,8 @@
 
 #include <fcntl.h>
 
-#include "exception.h"
-#include "types.h"
+#include "subprocess/exception.h"
+#include "subprocess/types.h"
 
 namespace subprocess {
 

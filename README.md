@@ -19,13 +19,13 @@ Please note that this project is still in development, so some parts may change 
 
 The recommended way to use the `subprocess` library in your own CMake project is by adding it as a subdirectory or an external project. Here's how you can do it:
 
-1. **Clone your project:**
+1. **Clone repository:**
     ```bash
     git clone https://github.com/geb0598/subprocess.git
     cd subprocess
     ```
 
-2. **Add your library as a subdirectory in your project’s `CMakeLists.txt`:**
+2. **Add library as a subdirectory in your project’s `CMakeLists.txt`:**
 
     ```cmake
     add_subdirectory(subprocess)
@@ -44,7 +44,7 @@ The recommended way to use the `subprocess` library in your own CMake project is
     In your C++ source files, include the necessary header files from `subprocess`:
 
     ```c++
-    #include <popen.h>
+    #include <subprocess.h>
     ```
 
 ---
@@ -53,8 +53,22 @@ The recommended way to use the `subprocess` library in your own CMake project is
 
 If you don’t want to use CMake directly, you can manually copy the required header files and the built static library into your project:
 
-1. **Copy the `include` directory** to your project's include path.
-2. **Copy the built `subprocess` static library** (e.g., `libsubprocess.a`) to your project and link it manually.
+1. **Clone repository:**
+    ```bash
+    git clone https://github.com/geb0598/subprocess.git
+    cd subprocess
+    ```
+
+2. **Build library**
+    ```bash
+    mkdir build
+    cd build
+    cmake --build .
+    ```
+
+3. **Copy the `include` directory** to your project's include path.
+
+4. **Copy the built `subprocess` static library** (e.g., `libsubprocess.a`) to your project and link it manually.
 
 However, using CMake is highly recommended for ease of integration.
 
@@ -130,7 +144,7 @@ The `subprocess::PopenConfig` allows you to configure the process creation with 
 ```cpp
 #include <fstream>
 
-#include <popen.h>  
+#include <subprocess.h>  
 
 using namespace subprocess;
 

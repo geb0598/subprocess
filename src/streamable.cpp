@@ -6,8 +6,8 @@
 #include <fcntl.h>
 #include <unistd.h>
 
-#include "exception.h"
-#include "streamable.h"
+#include "subprocess/exception.h"
+#include "subprocess/streamable.h"
 
 namespace subprocess {
 

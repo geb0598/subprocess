@@ -7,7 +7,7 @@
 #include <variant>
 #include <vector>
 
-#include "streamable.h"
+#include "subprocess/streamable.h"
 
 namespace subprocess {
 

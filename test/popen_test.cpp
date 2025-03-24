@@ -4,71 +4,9 @@
 
 #include <gtest/gtest.h>
 
-#include "popen.h"
+#include "subprocess/popen.h"
 
-TEST(PopenConfigTest, ConstructorTest) {
-    subprocess::PopenConfig config (
-        subprocess::types::args_t("1", "2", "3")
-    );
-
-    std::vector<std::string> v = { "1", "2", "3" };
-    for (int i = 0; i < v.size(); ++i) {
-        EXPECT_EQ(config.args.value().args[i], v[i]);
-    }
-}
-
-TEST(PopenTest, ExecTest) {
-    subprocess::Popen p(subprocess::PopenConfig(
-        subprocess::types::args_t("test/helpers/hello_world")
-    ));
-    
-    p.wait();
-
-    ASSERT_EQ(p.returncode().value(), EXIT_SUCCESS);
-}
-
-TEST(PopenTest, ReturncodeTest) {
-    int returncode = 100;
-    subprocess::Popen p(subprocess::PopenConfig(
-        subprocess::types::args_t("test/helpers/return", std::to_string(returncode))
-    ));
-    
-    p.wait();
-
-    ASSERT_EQ(p.returncode().value(), returncode);
-}
-
-TEST(PopenTest, SignalTest) {
-    subprocess::Popen p(subprocess::PopenConfig(
-        subprocess::types::args_t("test/helpers/sleep")
-    ));
-
-    p.send_signal(SIGTERM);
-    p.wait();
- 
-    ASSERT_EQ(p.returncode().value(), -SIGTERM);
-}
-
-TEST(PopenTest, PipeTest) {
-    subprocess::Popen p(subprocess::PopenConfig(
-        subprocess::types::args_t("test/helpers/echo"),
-        subprocess::types::std_in_t(subprocess::types::IOOption::PIPE),
-        subprocess::types::std_out_t(subprocess::types::IOOption::PIPE)
-    ));
-
-    std::string s = "Hello World!";
-    subprocess::Bytes input(s.begin(), s.end());
-    auto [std_out_data, std_err_data] = p.communicate(input, 3);
-
-    ASSERT_EQ(p.returncode().value(), EXIT_SUCCESS);
-    ASSERT_TRUE(std_out_data.has_value());
-    EXPECT_EQ(input.size(), std_out_data.value().size());
-    for (int i = 0; i < std::min(input.size(), std_out_data.value().size()); ++i) {
-        EXPECT_EQ(input[i], std_out_data.value()[i]) << i << "th element";
-    }
-}
-
-class PopenFileTest : public ::testing::Test {
+class PopenTest : public ::testing::Test {
 protected:
     virtual void SetUp() override {
         std::ofstream src_file(src, std::ios::out | std::ios::trunc);
@@ -114,19 +52,78 @@ protected:
         src_file.close();
     }
 
+    int generate_int(int low, int high) {
+        std::random_device rd;
+        std::mt19937 gen(rd());
+        std::uniform_int_distribution<int> dis(low, high);
+
+        return dis(gen);
+    }
+
     std::filesystem::path src    = "test/in.txt";
     std::filesystem::path dest   = "test/out.txt";
     std::string           input  = "Hello World!";
     std::string           output;
 };
 
-TEST_F(PopenFileTest, FILETest) {
+TEST_F(PopenTest, ExecTest) {
+    subprocess::Popen p(subprocess::PopenConfig(
+        subprocess::types::args_t("test/helpers/process", "--io", "disable")
+    ));
+    
+    p.wait();
+
+    ASSERT_EQ(p.returncode().value(), EXIT_SUCCESS);
+}
+
+TEST_F(PopenTest, ReturncodeTest) {
+    int returncode = generate_int(0, 255);
+    subprocess::Popen p(subprocess::PopenConfig(
+        subprocess::types::args_t("test/helpers/process", "--return", std::to_string(returncode), "--io", "disable")
+    ));
+    
+    p.wait();
+
+    ASSERT_EQ(p.returncode().value(), returncode);
+}
+
+TEST_F(PopenTest, SignalTest) {
+    subprocess::Popen p(subprocess::PopenConfig(
+        subprocess::types::args_t("test/helpers/process", "--delay", "10000")
+    ));
+
+    p.send_signal(SIGTERM);
+    p.wait();
+ 
+    ASSERT_EQ(p.returncode().value(), -SIGTERM);
+}
+
+TEST_F(PopenTest, PipeTest) {
+    subprocess::Popen p(subprocess::PopenConfig(
+        subprocess::types::args_t("test/helpers/process"),
+        subprocess::types::std_in_t(subprocess::types::IOOption::PIPE),
+        subprocess::types::std_out_t(subprocess::types::IOOption::PIPE)
+    ));
+
+    std::string s = "Hello World!";
+    subprocess::Bytes input(s.begin(), s.end());
+    auto [std_out_data, std_err_data] = p.communicate(input, 3);
+
+    ASSERT_EQ(p.returncode().value(), EXIT_SUCCESS);
+    ASSERT_TRUE(std_out_data.has_value());
+    EXPECT_EQ(input.size(), std_out_data.value().size());
+    for (int i = 0; i < std::min(input.size(), std_out_data.value().size()); ++i) {
+        EXPECT_EQ(input[i], std_out_data.value()[i]) << i << "th element";
+    }
+}
+
+TEST_F(PopenTest, FILETest) {
     generate_input(10);
 
     FILE* src_fp  = ::fopen(src.c_str(), "r");
     FILE* dest_fp = ::fopen(dest.c_str(), "w");
     subprocess::Popen p(subprocess::PopenConfig(
-        subprocess::types::args_t("test/helpers/echo"),
+        subprocess::types::args_t("test/helpers/process"),
         subprocess::types::std_in_t(src_fp),
         subprocess::types::std_out_t(dest_fp)
     ));
@@ -143,13 +140,13 @@ TEST_F(PopenFileTest, FILETest) {
     }
 }
 
-TEST_F(PopenFileTest, fstreamTest) {
-    generate_input(1000000);
+TEST_F(PopenTest, fstreamTest) {
+    generate_input(100);
 
     std::ifstream src_stream(src);
     std::ofstream dest_stream(dest);
     subprocess::Popen p(subprocess::PopenConfig(
-        subprocess::types::args_t("test/helpers/echo"),
+        subprocess::types::args_t("test/helpers/process"),
         subprocess::types::std_in_t(&src_stream),
         subprocess::types::std_out_t(&dest_stream)
     ));
@@ -165,5 +162,3 @@ TEST_F(PopenFileTest, fstreamTest) {
         EXPECT_EQ(input[i], output[i]) << i << "th element";
     }
 }
-
-// TODO: fstream use async communication

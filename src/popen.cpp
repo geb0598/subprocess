@@ -1,7 +1,7 @@
 #include <sys/wait.h>
 
-#include "exception.h"
-#include "popen.h"
+#include "subprocess/exception.h"
+#include "subprocess/popen.h"
 
 namespace subprocess {
 

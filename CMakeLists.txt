@@ -1,4 +1,4 @@
-# subprocess
+# subprocess/CMakeLists.txt
 
 cmake_minimum_required(VERSION 3.10)
 
@@ -14,5 +14,5 @@ add_subdirectory(test)
 
 enable_testing()
 
-add_test(NAME popen_test COMMAND test/popen_test)
-add_test(NAME streamable_test COMMAND test/streamable_test)
+add_test(NAME popen_test COMMAND ${CMAKE_BINARY_DIR}/test/popen_test)
+add_test(NAME streamable_test COMMAND ${CMAKE_BINARY_DIR}/test/streamable_test)
