@@ -9,7 +9,7 @@ Please note that this project is still in development, so some parts may change 
 ## Requirements
 
 - C++17 or later  
-- A POSIX-compliant operating system (Linux)  
+- A POSIX-compliant operating system (e.g., Linux, WSL2 on windows)  
 - CMake for building the project
 
 
@@ -166,3 +166,9 @@ int main (
         types::std_in_t(output_path)                      // Standard input from file stream
     ));
 ```
+
+## References
+
+- [subprocess](https://github.com/benman64/subprocess)
+- [cpp-subprocess](https://github.com/arun11299/cpp-subprocess)
+- [Python docs: subprocess](https://docs.python.org/3/library/subprocess.html)
